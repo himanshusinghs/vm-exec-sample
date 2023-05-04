@@ -13,6 +13,8 @@ app.post('/execute', async function (req, res) {
       return await collection.findOne({});
     })()
   `;
+
+  // Read more about nodejs vm here - https://nodejs.org/api/vm.html
   const script = new vm.Script(jsString);
   const context = vm.createContext({ result: null, db: client.db('script-db') });
   script.runInContext(context);
@@ -20,5 +22,6 @@ app.post('/execute', async function (req, res) {
   res.json(await context.result);
 });
 
+// Read more about mongodb drivers here - https://www.mongodb.com/docs/drivers/node/current/quick-start/
 client.connect()
   .then(() => app.listen(3000, () => console.log('Listening')));
