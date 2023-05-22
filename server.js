@@ -31,14 +31,35 @@ app.get('/execute-query', async function (req, res) {
     // we make sure that one script execution does not trouble other scripts
     // execution in any way possible
     // -----
-    // Additionally we attach two variables to the global scope of the secure
-    // sandbox. One is the instance of database which the scripts will use to
-    // perform database operations and the other is the result variable which is
-    // supposed to be populated by scripts after they are finished executing Read
+    // Additionally we attach three variables to the global scope of the secure
+    // sandbox.
+    //  1. The instance of database which the scripts will use to perform database operations
+    //  2. The function passResult which is used by the script to send a result (JS variable) back to the main controller
+    //  3. The function passCursor which is used by the script to send a cursor back to the main controller
     // more about nodejs vm here - https://nodejs.org/api/vm.html
     const context = vm.createContext({
       db: client.db('script-db'),
-      result: null,
+      passResult(result) {
+        // When we have received the result, we terminate the response right away
+        res.json({ result: result });
+      },
+      async passCursor(cursor) {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        // Start of an array
+        res.write('[');
+        // Since we received a cursor we have to iterate on it to produce the result
+        for await (const doc of cursor) {
+          // Transform the document to JSON string and write it to response
+          res.write(JSON.stringify(doc));
+          // Also write the separator
+          res.write(',');
+        }
+        // Terminate the array
+        res.write(']');
+        // End the response stream
+        res.end();
+      }
     });
     
     // Here we are converting our jsString to be executed into a Script object
@@ -46,13 +67,7 @@ app.get('/execute-query', async function (req, res) {
     const script = new vm.Script(jsString);
 
     // Here we run our script in the secure sandbox that we created earlier
-    script.runInContext(context);
-
-    // Here we gather the result of our script execution
-    const scriptExecutionResult = await context.result;
-
-    // Here we send the response back with the execution results
-    res.json({ result: scriptExecutionResult });
+    await script.runInContext(context);
   } catch (error) {
     // In case of errors we send an error response
     res.status(500).end(error.message);
